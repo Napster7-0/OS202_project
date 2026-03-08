@@ -1,0 +1,138 @@
+% ============================================================
+%  Chapitre 3 — Environnement expérimental
+% ============================================================
+\chapter{Environnement expérimental}
+\label{chap:env}
+
+\section{Machine de référence}
+
+Toutes les expériences ont été conduites sur un ordinateur portable équipé d'un processeur
+Intel Core i7-13650HX (architecture Raptor Lake, génération 13). Le tableau~\ref{tab:machine}
+résume les caractéristiques pertinentes.
+
+\begin{table}[h]
+\centering
+\caption{Caractéristiques de la machine de test}
+\label{tab:machine}
+\begin{tabular}{ll}
+\hline
+\textbf{Composant} & \textbf{Valeur} \\
+\hline
+Processeur       & Intel Core i7-13650HX \\
+Architecture     & Raptor Lake (hybride P-cores / E-cores) \\
+Cœurs physiques  & 14 (6 P-cores + 8 E-cores) \\
+Threads logiques & 20 (P-cores HT) \\
+Fréquence base   & 2.6 GHz (P-core) / 1.9 GHz (E-core) \\
+Cache L2         & 1280 Ko (P-core) + 2048 Ko (E-core cluster) \\
+Cache L3 (LLC)   & 24 Mo (partagé) \\
+RAM              & 16 Go DDR5 \\
+Système          & Ubuntu 22.04 LTS (Linux 6.x) \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Architecture hybride et implications}
+
+L'architecture hybride de ce processeur (P-cores haute performance + E-cores efficaces
+énergétiquement) est importante pour interpréter les résultats OpenMP. Les P-cores
+bénéficient de l'Hyper-Threading (20 threads logiques pour 6 P-cores) tandis que les
+E-cores partagent des ressources en cluster. On observera donc une saturation des
+performances avant d'atteindre le nombre maximum de threads logiques.
+
+\section{Chaîne de compilation}
+
+\begin{table}[h]
+\centering
+\caption{Outils de compilation utilisés}
+\label{tab:compile}
+\begin{tabular}{lll}
+\hline
+\textbf{Outil} & \textbf{Version} & \textbf{Flags principaux} \\
+\hline
+g++       & 11.4.0  & \texttt{-O2 -std=c++17 -fopenmp} \\
+mpic++    & OpenMPI & \texttt{-O2 -std=c++17 -fopenmp} \\
+OpenMP    & 5.0     & (libomp embarqué dans GCC) \\
+OpenMPI   & 4.1.x   & -- \\
+SDL2      & 2.0.x   & (visualisation uniquement) \\
+\hline
+\end{tabular}
+\end{table}
+
+Le flag \texttt{-O2} a été retenu comme compromis entre optimisation agressive et
+reproductibilité. Le flag \texttt{-march=native} n'a pas été utilisé afin d'éviter
+une dépendance trop forte à l'architecture spécifique de la machine de test.
+
+\section{Protocole de benchmarking}
+
+\subsection{Paramètres de simulation fixes}
+
+Pour l'ensemble des expériences de performance, les paramètres de simulation sont
+maintenus constants (voir table~\ref{tab:params} au chapitre~\ref{chap:modele}) :
+
+\begin{itemize}
+    \item Grille $N = 512$ ;
+    \item $m = 5\,000$ fourmis ;
+    \item $\varepsilon = 0.8$, $\alpha = 0.7$, $\beta = 0.999$ ;
+    \item 200 itérations de simulation (100 de chauffe + 100 mesurées).
+\end{itemize}
+
+\subsection{Procédure de mesure}
+
+Chaque configuration est exécutée \textbf{3 fois} afin d'estimer la variabilité.
+Les résultats présentés sont la \textbf{médiane} des 3 runs (plus robuste à un pic de
+charge ponctuel que la moyenne). Pour chaque run :
+
+\begin{enumerate}
+    \item \textbf{Phase de chauffe} : les 100 premières itérations ne sont pas mesurées
+          (mise en cache, compilation JIT du scheduler OS) ;
+    \item \textbf{Phase mesurée} : les 100 itérations suivantes sont chronométrées via
+          \texttt{std::chrono::steady\_clock} ;
+    \item Le résultat affiché est le \textbf{temps moyen par itération} (ms/it).
+\end{enumerate}
+
+Les temps sont décomposés en trois phases :
+\begin{itemize}
+    \item \textbf{Fourmis} (\texttt{t\_ants}) : avancement de toutes les fourmis via
+          \texttt{advance\_all()} ;
+    \item \textbf{Évaporation} (\texttt{t\_evap}) : appel à \texttt{do\_evaporation()} ;
+    \item \textbf{Update} (\texttt{t\_update}) : swap des buffers via \texttt{update()}.
+\end{itemize}
+Pour la version MPI, un quatrième composant \textbf{Communication} (\texttt{t\_comm})
+mesure le coût de \texttt{MPI\_Allreduce}.
+
+\subsection{Métriques d'évaluation}
+
+Pour évaluer le bénéfice de la parallélisation, on utilise les métriques classiques :
+
+\begin{equation}
+    S(p) = \frac{T_1}{T_p}
+    \label{eq:speedup}
+\end{equation}
+
+où $T_1$ est le temps séquentiel de référence et $T_p$ le temps avec $p$ unités de
+calcul (threads ou processus), et :
+
+\begin{equation}
+    E(p) = \frac{S(p)}{p}
+    \label{eq:efficiency}
+\end{equation}
+
+l'efficacité parallèle, comprise entre 0 et 1 dans un cas idéal.
+
+\subsection{Vérification de la reproductibilité}
+
+La simulation ACO est stochastique. Pour s'assurer que les comparaisons de performances
+ne sont pas biaisées par des variations de la dynamique de simulation, on vérifie que :
+
+\begin{enumerate}
+    \item La \textbf{graine aléatoire est fixée} à la même valeur (2026) sur toutes
+          les configurations ;
+    \item Le \textbf{compteur de nourriture global} (nombre d'unités collectées sur
+          200 itérations) reste stable d'un run à l'autre à $\pm 5\%$ ;
+    \item La version OpenMP avec une race condition délibérée sur \texttt{mark\_pheronome()}
+          est documentée comme \emph{non-déterministe} : ses résultats fonctionnels
+          peuvent diverger légèrement d'un run à l'autre, mais l'ordre de grandeur
+          des performances reste représentatif.
+\end{enumerate}
+
+% TODO : ajouter tableau de reproductibilité (compteur nourriture sur 3 runs × versions)

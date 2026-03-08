@@ -1,0 +1,114 @@
+% ============================================================
+%  Chapitre 2 — Modèle et implémentation de référence
+% ============================================================
+\chapter{Modèle ACO et implémentation de référence}
+\label{chap:modele}
+
+\section{Description formelle du modèle}
+
+\subsection{Représentation de l'environnement}
+
+L'environnement est une grille cartésienne $N \times N$ ($N = 512$). Chaque cellule $s$
+stocke trois valeurs :
+\begin{itemize}
+    \item $c(s) \in [0, 1]$ : coût de traversée (généré par plasma fractal) ;
+    \item $V_1(s) \in [0, 1]$ : phéromone de type 1, guide vers la \emph{nourriture} ;
+    \item $V_2(s) \in [0, 1]$ : phéromone de type 2, guide vers le \emph{nid}.
+\end{itemize}
+
+\subsection{Dynamique des phéromones}
+
+À chaque pas de temps, lorsqu'une fourmi visite la cellule $s$, les phéromones sont mis à jour
+selon :
+
+\begin{equation}
+    V_i(s) \leftarrow
+    \begin{cases}
+        1 & \text{si } s \text{ est la source cible du phéromone } i \\
+        \alpha \cdot \max_{s' \in \mathcal{N}(s)} V_i(s')
+        + (1 - \alpha) \cdot \frac{1}{4}\sum_{s' \in \mathcal{N}(s)} V_i(s')
+        & \text{sinon}
+    \end{cases}
+    \label{eq:pheromone_update}
+\end{equation}
+
+où $\mathcal{N}(s)$ désigne les quatre voisins (haut, bas, gauche, droite) de $s$,
+et $\alpha \in [0,1]$ est le \textbf{paramètre de bruit}.
+
+Après chaque itération, tous les phéromones s'évaporent :
+\begin{equation}
+    V_i(s) \leftarrow \beta \cdot V_i(s), \quad \forall s
+    \label{eq:evaporation}
+\end{equation}
+où $\beta \in ]0, 1[$ est le \textbf{coefficient d'évaporation}.
+
+\subsection{Règle de déplacement}
+
+À chaque sous-pas, une fourmi en position $s$ choisit sa prochaine cellule selon :
+\begin{itemize}
+    \item avec probabilité $\varepsilon$ (\textbf{exploration}) : cellule voisine tirée
+          uniformément parmi $\mathcal{N}(s) \setminus \{\text{obstacles}\}$ ;
+    \item avec probabilité $1 - \varepsilon$ (\textbf{exploitation}) : cellule $s^*$ maximisant
+          $V_{i^*}(s')$, où $i^* = 1$ si la fourmi est non chargée, $i^* = 2$ si elle est chargée.
+\end{itemize}
+
+La fourmi avance tant que son budget de mouvement $b$ (initialisé à 1) n'est pas épuisé :
+$b \leftarrow b - c(s_{\text{new}})$.
+
+\subsection{Paramètres}
+
+\begin{table}[h]
+\centering
+\caption{Paramètres de la simulation de référence}
+\label{tab:params}
+\begin{tabular}{llll}
+\hline
+\textbf{Paramètre} & \textbf{Symbole} & \textbf{Valeur} & \textbf{Rôle} \\
+\hline
+Nombre de fourmis    & $m$          & 5\,000  & Agents simulés \\
+Taille de la grille  & $N$          & 512     & $N \times N$ cellules \\
+Exploration          & $\varepsilon$& 0.8     & Proportion d'exploration \\
+Bruit                & $\alpha$     & 0.7     & Pondération max/moyenne \\
+Évaporation          & $\beta$      & 0.999   & Décroissance des phéromones \\
+\hline
+\end{tabular}
+\end{table}
+
+\section{Génération du terrain fractal}
+
+Le terrain est généré par l'algorithme \textit{midpoint displacement} récursif :
+une grille de $n \times n$ sous-grilles de taille $2^k + 1$ est initialisée aux coins,
+puis subdivisée récursivement en calculant les points médians avec une déviation bornée par
+$d \times \frac{ns}{2}$. Les valeurs sont ensuite normalisées dans $[0, 1]$.
+
+% TODO : ajouter une figure du terrain fractal généré (capture d'écran SDL)
+% \begin{figure}[h]
+%     \centering
+%     \includegraphics[width=0.6\textwidth]{Figures/fractal_land.png}
+%     \caption{Exemple de terrain fractal 512×512 (seed=1024, deviation=1.0)}
+%     \label{fig:fractal}
+% \end{figure}
+
+\section{Architecture du code de référence}
+
+Le code est organisé en quatre modules :
+
+\begin{description}
+    \item[\texttt{fractal\_land}] Génération et stockage du terrain (tableau 1D de \texttt{double}).
+    \item[\texttt{pheronome}] Grille $(N+2)^2$ de paires $[V_1, V_2]$, avec cellules fantômes
+          à $-1$ pour les bords. Méthodes : \texttt{mark\_pheronome()}, \texttt{do\_evaporation()},
+          \texttt{update()} (double-buffering).
+    \item[\texttt{ant}] Un objet par fourmi (\textbf{AoS}) : état, position (\texttt{SDL\_Point}),
+          graine aléatoire. Méthode \texttt{advance()} : boucle de sous-pas jusqu'à budget épuisé.
+    \item[\texttt{ant\_simu}] Point d'entrée, boucle principale SDL, appel à
+          \texttt{advance\_time()} à chaque itération.
+\end{description}
+
+\subsection{Analyse de complexité}
+
+La complexité par itération est dominée par la phase de déplacement des fourmis :
+$\mathcal{O}(m \cdot \bar{k})$ où $\bar{k}$ est le nombre moyen de sous-pas par fourmi
+(dépend du terrain et de la position). La phase d'évaporation est $\mathcal{O}(N^2)$, fixe
+et régulière.
+
+% TODO : compléter avec une mesure expérimentale de k_bar moyen

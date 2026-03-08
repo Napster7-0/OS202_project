@@ -1,0 +1,53 @@
+% ============================================================
+%  Chapitre 1 — Introduction
+% ============================================================
+\chapter*{Introduction}
+\addcontentsline{toc}{chapter}{Introduction}
+\label{chap:intro}
+
+\section{Contexte}
+
+Les algorithmes d'optimisation par colonies de fourmis (\textit{Ant Colony Optimisation}, ACO)
+appartiennent à la classe des algorithmes d'intelligence en essaim introduite par Beni et al.\
+en 1989~\cite{beni1989swarm}. Ces méthodes s'inspirent du comportement de fourragement des
+fourmis réelles : des agents simples interagissent indirectement via l'environnement
+(stigmergie), produisant collectivement un comportement intelligent sans coordination centrale.
+
+% TODO : ajouter 2-3 phrases sur les applications industrielles et académiques des ACO
+
+\section{Problème étudié}
+
+Ce projet met en \oe{}uvre un modèle ACO pour résoudre le \textbf{problème de fourragement} :
+trouver le chemin de coût minimal entre un nid et une source de nourriture sur un terrain
+fractal 2D. Chaque cellule de la grille est associée à un coût de traversée généré par un
+algorithme de plasma fractal (subdivision récursive midpoint displacement).
+
+L'intérêt pédagogique réside dans la progression d'optimisation du code :
+\begin{enumerate}
+    \item Analyse du code de référence et instrumentation temporelle ;
+    \item Vectorisation via la transformation AoS $\rightarrow$ SoA (\textit{Structure of Arrays}) ;
+    \item Parallélisation à mémoire partagée (OpenMP) ;
+    \item Parallélisation à mémoire distribuée (MPI), deux approches.
+\end{enumerate}
+
+\section{Objectifs}
+
+% TODO : reformuler selon les attentes précises du cours OS202
+
+Les objectifs de ce rapport sont :
+\begin{itemize}
+    \item Identifier expérimentalement les goulots d'étranglement du code de référence ;
+    \item Évaluer l'impact de la vectorisation sur les performances mono-c\oe{}ur ;
+    \item Mesurer l'accélération $S(p) = T(1)/T(p)$ et l'efficacité $E(p) = S(p)/p$
+          en fonction du nombre de threads/processus ;
+    \item Comparer les stratégies de parallélisation MPI et identifier leurs limites.
+\end{itemize}
+
+\section{Organisation du rapport}
+
+Le rapport est structuré comme suit. Le chapitre~\ref{chap:modele} décrit le modèle ACO et
+l'implémentation de référence. Le chapitre~\ref{chap:env} présente l'environnement expérimental
+et le protocole de mesure. Le chapitre~\ref{chap:baseline} analyse les performances mono-c\oe{}ur
+et l'effet de la vectorisation. Les chapitres~\ref{chap:openmp} et~\ref{chap:mpi} présentent
+respectivement les résultats OpenMP et MPI. Le chapitre~\ref{chap:discussion} discute l'ensemble
+des résultats, et on conclut~\ref{chap:conclusion} .

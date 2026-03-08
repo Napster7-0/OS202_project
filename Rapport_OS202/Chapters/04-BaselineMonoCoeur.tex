@@ -1,0 +1,149 @@
+% ============================================================
+%  Chapitre 4 — Analyse de la version de référence (mono-cœur)
+% ============================================================
+\chapter{Version de référence : analyse mono-cœur}
+\label{chap:baseline}
+
+\section{Instrumentation du code original (AoS)}
+
+\subsection{Démarche}
+
+La première étape consiste à \emph{instrumenter} le code de référence (\texttt{src/})
+sans modifier sa logique, afin d'établir une ligne de base de performance.
+On encadre chaque phase de la boucle principale avec des chronomètres
+\texttt{std::chrono::steady\_clock} et on accumule les durées sur 100 itérations
+avant de les afficher sur \texttt{stdout}.
+
+La structure ajoutée est la suivante :
+
+\begin{lstlisting}[language=C++, caption={Structure d'accumulation des temps (ant\_simu.cpp)}]
+struct TimingStats {
+    double t_ants = 0., t_evap = 0., t_update = 0., t_render = 0.;
+    int    count  = 0;
+    void print() const {
+        double inv = 1e3 / count;
+        std::cout << "Fourmis : "    << t_ants  * inv << " ms/it\n"
+                  << "Evaporation : "<< t_evap  * inv << " ms/it\n"
+                  << "Update : "     << t_update* inv << " ms/it\n"
+                  << "Rendu SDL : "  << t_render* inv << " ms/it\n";
+    }
+};
+\end{lstlisting}
+
+\subsection{Résultats — version AoS séquentielle}
+
+Les mesures ci-dessous proviennent d'un run instrumenté de
+\texttt{src\_v1\_timing/} exporté dans \texttt{profiling.csv}, puis agrégé par
+\texttt{profile\_stats.exe}. Le run contient \textbf{14184 itérations}.
+
+On relève également deux indicateurs métier utiles :
+\begin{itemize}
+    \item première nourriture ramenée au nid à l'itération \textbf{1747} ;
+    \item quantité finale de nourriture : \textbf{46062}.
+\end{itemize}
+
+\begin{table}[h]
+\centering
+\caption{Profiling par phase — version AoS séquentielle (1 cœur, run long)}
+\label{tab:aos_timing}
+\begin{tabular}{lrr}
+\hline
+\textbf{Phase}      & \textbf{Temps (ms/it)} & \textbf{Part (\%)} \\
+\hline
+Avancement fourmis  & 4.1713   & 4.05  \\
+Évaporation         & 0.6541   & 0.64  \\
+Update (swap)       & 0.0119   & 0.01  \\
+Rendu SDL           & 98.1038  & 95.30 \\
+\hline
+\textbf{TOTAL}      & \textbf{102.9411} & 100.0 \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Analyse}
+
+Le goulot dominant de cette campagne est clairement le \textbf{rendu SDL}
+($\approx 95\%$ du temps total). Les mesures "end-to-end" sont donc
+majoritairement pilotées par la chaîne graphique et par le scheduling système.
+
+En isolant le coût algorithmique (sans rendu), on obtient :
+\[
+T_{\mathrm{calc}} = T_{\mathrm{ants}} + T_{\mathrm{evap}} + T_{\mathrm{update}}
+\approx 4.1713 + 0.6541 + 0.0119 = 4.8373\ \mathrm{ms/it}
+\]
+soit une cadence théorique d'environ
+\[
+\frac{1}{0.0048373} \approx 206\ \mathrm{it/s}
+\]
+contre $\approx 9.7\ \mathrm{it/s}$ en mode affiché.
+
+Conclusion méthodologique : pour évaluer la scalabilité OpenMP/MPI, il faut
+utiliser des mesures \textbf{sans rendu} (ou avec rendu décimé), sinon les
+accélérations observées reflètent surtout le sous-système graphique plutôt que
+l'algorithme ACO.
+
+\section{Vectorisation par passage SoA}
+
+\subsection{Démarche}
+
+Le refactoring AoS → SoA consiste à remplacer le tableau d'objets \texttt{vector<ant>}
+par trois tableaux distincts, un pour chaque attribut :
+
+\begin{lstlisting}[language=C++, caption={Structure SoA dans ant\_colony (ant.hpp)}]
+class ant_colony {
+    std::vector<state_t>    m_states;    // etat de chaque fourmi
+    std::vector<position_t> m_positions; // position (x, y)
+    std::vector<std::size_t> m_seeds;   // graine aleatoire
+public:
+    void advance_all(pheronome& phen, const fractal_land& land,
+                     const position_t& pos_food,
+                     const position_t& pos_nest,
+                     std::size_t& cpteur_food);
+};
+\end{lstlisting}
+
+Cette organisation garantit que l'accès à un seul champ (par exemple les graines de tous
+les agents) est \emph{contigu} en mémoire, ce qui favorise la prélecture matérielle
+et la vectorisation par le compilateur.
+
+\subsection{Résultats — version SoA (1 cœur, -fopenmp)}
+
+\begin{table}[h]
+\centering
+\caption{Temps par phase — version SoA, 1 thread (src\_v3\_omp/)}
+\label{tab:soa_timing}
+\begin{tabular}{lrr}
+\hline
+\textbf{Phase}      & \textbf{Temps (ms/it)} & \textbf{Part (\%)} \\
+\hline
+Avancement fourmis  & 1.88  & 89.9 \\
+Évaporation         & 0.19  & 9.1  \\
+Update (swap)       & 0.003 & 0.1  \\
+\hline
+\textbf{TOTAL}      & \textbf{2.09} & 100.0 \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Discussion du surcoût SoA à 1 thread}
+
+La version SoA avec le flag \texttt{-fopenmp} est légèrement \emph{plus lente}
+($+20\%$) que la version AoS sans OpenMP. Ce comportement s'explique par deux facteurs :
+
+\begin{enumerate}
+    \item \textbf{Surcoût du runtime OpenMP} : même avec un seul thread,
+          \texttt{-fopenmp} active les mécanismes de synchronisation interne de la
+          bibliothèque (barriers, lock management), ajoutant une latence fixe par
+          pragma \texttt{parallel for}.
+    \item \textbf{Accès indirect} : la logique de \texttt{advance\_one(idx, ...)} accède
+          simultanément à \texttt{m\_states[idx]}, \texttt{m\_positions[idx]} et
+          \texttt{m\_seeds[idx]}, qui se trouvent dans trois régions mémoire différentes.
+          Pour une fourmi isolée, le pattern d'accès reste irrégulier car la fourmi
+          rebondit sur la grille de phéromones de façon dépendante de son état.
+\end{enumerate}
+
+Le gain SoA se matérialisera surtout en mode multi-thread, où la cohérence de cache
+entre threads travaillant sur des fourchettes d'indices adjacentes est bien meilleure
+qu'avec AoS.
+
+% TODO : profil perf stat / valgrind cachegrind pour quantifier les défauts L1/L2

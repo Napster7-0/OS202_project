@@ -1,0 +1,156 @@
+% ============================================================
+%  Chapitre 5 — Parallélisation en mémoire partagée (OpenMP)
+% ============================================================
+\chapter{Parallélisation en mémoire partagée : OpenMP}
+\label{chap:openmp}
+
+\section{Stratégie de parallélisation}
+
+\subsection{Identification des boucles parallélisables}
+
+La boucle principale contient deux phases susceptibles d'être parallélisées :
+
+\begin{description}
+    \item[Phase fourmis] La boucle sur les $m = 5\,000$ fourmis est \emph{embarrassingly
+          parallel} : chaque fourmi avance indépendamment. La seule dépendance partagée
+          est la carte de phéromones en lecture (\texttt{m\_map\_of\_pheronome}) et,
+          en écriture, le buffer de mise à jour (\texttt{m\_buffer\_pheronome}) via
+          \texttt{mark\_pheronome()}. L'écriture concurrente sur des cellules distinctes
+          constitue une \emph{race condition tolérable} : l'algorithme ACO est défini
+          de façon stochastique et les ordres d'écriture alternatifs produisent des
+          résultats équivalents sur un grand nombre d'itérations.
+    \item[Phase évaporation] La boucle sur les $(N)^2 = 262\,144$ cellules est
+          \emph{totalement indépendante} (pas de dépendance entre cellules).
+          Elle constitue le candidat idéal pour la parallélisation.
+\end{description}
+
+\subsection{Pragma choisis}
+
+\begin{lstlisting}[language=C++, caption={OpenMP sur la boucle fourmis (ant.cpp)}]
+void ant_colony::advance_all(..., std::size_t& cpteur_food) {
+    std::size_t local_food = 0;
+    #pragma omp parallel for schedule(dynamic, 16) \
+                             reduction(+:local_food)
+    for (std::size_t i = 0; i < size(); ++i)
+        advance_one(i, phen, land, pos_food, pos_nest, local_food);
+    cpteur_food += local_food;
+}
+\end{lstlisting}
+
+Le choix \texttt{schedule(dynamic, 16)} est motivé par la \textbf{variabilité du
+nombre de sous-pas} d'une fourmi à l'autre (dépendant du terrain fractal traversé).
+Un ordonnancement statique laisserait certains threads inactifs en fin de boucle tandis
+que d'autres terminent des fourmis bloquées sur un terrain difficile.
+La granule de 16 fourmis par chunk limite le surcoût de gestion du scheduler.
+
+\begin{lstlisting}[language=C++, caption={OpenMP sur l'évaporation (pheronome.hpp)}]
+void do_evaporation() {
+    #pragma omp parallel for schedule(static)
+    for (std::size_t i = 1; i <= m_dim; ++i)
+        for (std::size_t j = 1; j <= m_dim; ++j) {
+            m_buffer_pheronome[i * m_stride + j][0] *= m_beta;
+            m_buffer_pheronome[i * m_stride + j][1] *= m_beta;
+        }
+}
+\end{lstlisting}
+
+Pour l'évaporation, \texttt{schedule(static)} est suffisant car la charge est
+parfaitement régulière (même travail par cellule).
+
+\section{Résultats expérimentaux}
+
+\subsection{Mesures de temps par phase}
+
+Les mesures suivantes ont été obtenues en faisant varier le nombre de threads OpenMP
+via la variable d'environnement \texttt{OMP\_NUM\_THREADS}, sur la version \texttt{src\_v3\_omp/}.
+
+\begin{table}[h]
+\centering
+\caption{Temps par phase en fonction du nombre de threads OpenMP (ms/it)}
+\label{tab:omp_timing}
+\begin{tabular}{lrrrr}
+\hline
+\textbf{Threads} & \textbf{Fourmis} & \textbf{Évaporation} & \textbf{Update} & \textbf{Total} \\
+\hline
+1  & 1.88 & 0.19 & 0.003 & 2.09 \\
+2  & 1.01 & 0.10 & 0.003 & 1.13 \\
+4  & 0.54 & 0.10 & 0.003 & 0.66 \\
+8  & 0.32 & 0.10 & 0.003 & 0.44 \\
+12 & 0.22 & 0.10 & 0.003 & 0.33 \\
+14 & 0.19 & 0.10 & 0.003 & 0.29 \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Accélération et efficacité}
+
+\begin{table}[h]
+\centering
+\caption{Accélération $S(p)$ et efficacité $E(p)$ — OpenMP}
+\label{tab:omp_speedup}
+\begin{tabular}{lrrr}
+\hline
+\textbf{Threads $p$} & \textbf{$T_p$ (ms/it)} & \textbf{$S(p)$} & \textbf{$E(p)$ (\%)} \\
+\hline
+1  & 2.09 & 1.0 & 100 \\
+2  & 1.13 & 1.8 &  92 \\
+4  & 0.66 & 3.2 &  79 \\
+8  & 0.44 & 4.8 &  59 \\
+12 & 0.33 & 6.3 &  53 \\
+14 & 0.29 & 7.1 &  51 \\
+\hline
+\end{tabular}
+\end{table}
+
+% TODO : ajouter figure du graphe speedup (courbe S(p) vs courbe idéale et Amdahl)
+% \begin{figure}[h]
+%     \centering
+%     \includegraphics[width=0.7\textwidth]{Figures/openmp_speedup.png}
+%     \caption{Accélération OpenMP en fonction du nombre de threads}
+%     \label{fig:omp_speedup}
+% \end{figure}
+
+\section{Analyse}
+
+\subsection{Loi d'Amdahl}
+
+La loi d'Amdahl prédit l'accélération maximale pour une fraction parallèle $f$ :
+
+\begin{equation}
+    S_{\infty} = \frac{1}{1 - f}
+    \label{eq:amdahl}
+\end{equation}
+
+À 14 threads, $S(14) = 7.1$. En isolant la partie séquentielle $s = 1 - f$, on obtient :
+
+\[
+    s \approx \frac{1}{S(14)} - \frac{1}{14} \approx 0.070
+\]
+
+La fraction séquentielle résiduelle est d'environ $7\%$ du temps d'exécution.
+Elle est principalement constituée de :
+
+\begin{itemize}
+    \item la réduction finale du compteur de nourriture (\texttt{reduction(+:local\_food)}) ;
+    \item l'opération \texttt{update()} (swap des buffers + mise à jour des conditions limites) ;
+    \item le surcoût intrinsèque des \texttt{parallel for} (création/destruction de l'équipe OMP).
+\end{itemize}
+
+\subsection{Saturation à partir de 12 threads}
+
+On observe que le gain entre 12 et 14 threads est faible ($6.3 \to 7.1$, soit $+12\%$
+pour $+17\%$ de threads). Ceci s'explique par la nature hybride de la puce :
+les 12 premiers threads occupent les 6 P-cores (2 threads/cœur via HT), tandis que
+les 14\textsuperscript{e} et 16\textsuperscript{e} threads mobilisent des E-cores
+de cadence inférieure. Par ailleurs, la pression sur le cache L3 partagé (24 Mo)
+commence à croître significativement lorsque plusieurs threads accèdent simultanément
+à la grille de phéromones de taille $\approx 2 \times 4 \approx 8$ Mo.
+
+\subsection{Évaporation en plateau}
+
+Le temps d'évaporation se stabilise autour de $0.10$~ms/it dès 2 threads et ne
+diminue plus au-delà. Ce plafonnement indique que la phase d'évaporation est
+\textbf{limitée par la bande passante mémoire} (memory-bound) : à 2 threads, le
+débit maximal vers la RAM est déjà atteint pour ce volume de données ($\approx 4$~Mo
+de buffer pheromone parcouru séquentiellement). Le gain d'un troisième thread ne peut
+pas dépasser ce plafond matériel.

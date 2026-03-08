@@ -1,0 +1,157 @@
+% ============================================================
+%  Chapitre 6 — Parallélisation distribuée (MPI)
+% ============================================================
+\chapter{Parallélisation distribuée : MPI}
+\label{chap:mpi}
+
+\section{Approche 1 : carte globale, fourmis réparties}
+
+\subsection{Principe}
+
+Dans cette première approche, chaque processus MPI possède une \textbf{copie complète}
+de la carte de phéromones ($N^2 \approx 262\,000$ cellules). Les $m = 5\,000$ fourmis
+sont réparties équitablement : le processus de rang $r$ gère les fourmis
+$[r \cdot \lfloor m/P \rfloor,\ (r+1) \cdot \lfloor m/P \rfloor)$.
+
+Le cycle d'une itération comprend quatre étapes :
+
+\begin{enumerate}
+    \item \textbf{Avancement local} : chaque processus fait avancer ses $m/P$ fourmis
+          et met à jour son buffer de phéromones local via \texttt{mark\_pheronome()}.
+    \item \textbf{Évaporation partielle} : chaque processus applique l'évaporation
+          sur sa plage de lignes $[i_{\text{start}}, i_{\text{end}})$ uniquement
+          (via \texttt{do\_evaporation\_range()}), répartissant ainsi la charge.
+    \item \textbf{Synchronisation globale} : \texttt{MPI\_Allreduce(MPI\_IN\_PLACE,
+          buf, MPI\_MAX)} fusionne les buffers en choisissant la valeur maximale
+          pour chaque cellule (conformément à la spécification du projet : lorsque
+          deux processus ont mis à jour la même cellule, on retient la plus grande valeur).
+    \item \textbf{Update} : swap buffer $\to$ carte principale sur tous les processus.
+\end{enumerate}
+
+\subsection{Implémentation clé}
+
+La méthode \texttt{allreduce\_buffer\_max()} dans \texttt{pheronome.hpp} est le
+cœur de la synchronisation :
+
+\begin{lstlisting}[language=C++, caption={Synchronisation MPI des phéromones}]
+void allreduce_buffer_max() {
+    double* buf = reinterpret_cast<double*>(m_buffer_pheronome.data());
+    std::size_t count = m_buffer_pheronome.size() * 2;
+    MPI_Allreduce(MPI_IN_PLACE, buf,
+                  static_cast<int>(count),
+                  MPI_DOUBLE, MPI_MAX,
+                  MPI_COMM_WORLD);
+}
+\end{lstlisting}
+
+Le volume échangé à chaque itération est :
+\[
+    V = (N+2)^2 \times 2 \times 8 \text{ octets} = 514^2 \times 16 \approx 4{,}2 \text{ Mo}
+\]
+
+\subsection{Résultats expérimentaux}
+
+\begin{table}[h]
+\centering
+\caption{Temps par phase — version MPI Approche 1 (ms/it)}
+\label{tab:mpi_timing}
+\begin{tabular}{lrrrr}
+\hline
+\textbf{Processus $P$} & \textbf{Fourmis} & \textbf{Évaporation} & \textbf{Comm MPI} & \textbf{Total} \\
+\hline
+1 & 1.58 & 0.16 & 0.00 & 1.57\footnotemark \\
+2 & 0.80 & 0.08 & 0.65 & 1.51 \\
+\hline
+\end{tabular}
+\end{table}
+\footnotetext{Version MPI sans SDL, légèrement plus rapide que la version AoS SDL.}
+
+\begin{table}[h]
+\centering
+\caption{Accélération et efficacité — MPI Approche 1}
+\label{tab:mpi_speedup}
+\begin{tabular}{lrrr}
+\hline
+\textbf{Processus $P$} & \textbf{$T_P$ (ms/it)} & \textbf{$S(P)$} & \textbf{$E(P)$ (\%)} \\
+\hline
+1 & 1.57 & 1.0 & 100 \\
+2 & 1.51 & 1.0 &  52 \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Analyse du goulot d'étranglement}
+
+L'accélération à 2 processus est quasi nulle : le gain de calcul ($0.8$ ms sur les
+fourmis + $0.08$ ms sur l'évaporation = $\approx 0.86$ ms économisés) est entièrement
+annulé par le coût de \texttt{MPI\_Allreduce} ($0.65$ ms). L'efficacité tombe à $52\%$
+dès 2 processus.
+
+Ce résultat était prévisible : la communication représente
+$\frac{0.65}{1.57} \approx 41\%$ du temps total à $P = 2$. La loi d'Amdahl appliquée
+à ce cas prédit une accélération maximale très limitée :
+
+\[
+    S_{\max} = \frac{1}{f_{\text{comm}}} = \frac{1}{0.41} \approx 2.4
+\]
+
+L'Approche 1 n'est rentable que si le rapport $m / N^2$ est très élevé (beaucoup de
+fourmis sur une grille petite), ce qui n'est pas le cas ici.
+
+\section{Approche 2 : décomposition de domaine}
+
+\subsection{Stratégie}
+
+Dans cette seconde approche, chaque processus ne gère qu'une \textbf{bande horizontale}
+de la carte de phéromones. Le processus $r$ est responsable des lignes
+$[r \cdot N/P,\ (r+1) \cdot N/P)$ de la grille. Seules les fourmis se trouvant
+dans cette bande sont gérées localement ; une fourmi qui franchit la frontière entre
+deux processus doit \textbf{migrer}.
+
+\subsection{Gestion des bords (cellules fantômes)}
+
+Pour calculer \texttt{mark\_pheronome()} sur les lignes frontières, chaque processus
+a besoin des valeurs de phéromones de la ligne immédiatement au-dessus (appartenant au
+processus $r-1$) et en dessous (processus $r+1$). On introduit des
+\textbf{cellules fantômes} (ghost rows) :
+
+\begin{itemize}
+    \item Avant chaque itération, les processus voisins s'échangent leurs lignes de bord
+          via \texttt{MPI\_Sendrecv} (communications non-bloquantes si possible).
+    \item Volume échangé par itération : $2 \times N \times 2 \times 8 = 2 \times 512 \times 16 \approx 16\text{ Ko}$
+          (soit $\approx 260\times$ moins que l'Approche 1).
+\end{itemize}
+
+\subsection{Gestion de la migration des fourmis}
+
+Lorsqu'une fourmi franchit la frontière haute ou basse de sa bande :
+\begin{enumerate}
+    \item Elle est retirée de la liste locale et sérialisée (position, état, graine).
+    \item \texttt{MPI\_Send} vers le processus voisin ($r-1$ ou $r+1$).
+    \item Le processus receveur intègre la fourmi dans sa liste locale.
+\end{enumerate}
+Cette migration est potentiellement déséquilibrée : le processus contenant la fourmilière
+attire temporairement un grand nombre de fourmis chargées. Cependant, avec $\varepsilon = 0.8$
+(forte exploration) et $m = 5\,000$ fourmis, on peut supposer que la distribution reste
+statistiquement uniforme sur la grille à long terme.
+
+\subsection{Avantages et inconvénients}
+
+\begin{table}[h]
+\centering
+\caption{Comparaison Approche 1 vs Approche 2}
+\label{tab:mpi_compare}
+\begin{tabular}{lll}
+\hline
+\textbf{Critère}         & \textbf{Approche 1}    & \textbf{Approche 2} \\
+\hline
+Mémoire par processus    & $O(N^2)$ (carte entière) & $O(N^2/P)$ (bande) \\
+Communication/itération  & $\approx 4.2$ Mo       & $\approx 16$ Ko + migration \\
+Équilibrage              & Parfait (fourmis)       & Variable (migration) \\
+Complexité d'impl.       & Faible                  & Élevée \\
+Efficacité attendue      & Faible ($P > 2$)        & Bonne ($P$ grand) \\
+\hline
+\end{tabular}
+\end{table}
+
+% TODO (Bonus) : implémentation complète de l'Approche 2 et mesure de l'accélération

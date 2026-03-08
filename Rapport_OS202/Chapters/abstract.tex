@@ -1,0 +1,43 @@
+\chapter*{Résumé}
+\addcontentsline{toc}{section}{Résumé}
+
+Ce rapport présente l'étude et la parallélisation d'un algorithme d'Optimisation par
+Colonies de Fourmis (\textbf{ACO}) appliqué au problème de fourragement sur un paysage
+fractal généré par plasma. Partant d'une implémentation séquentielle de référence, nous
+avons progressivement optimisé le code selon trois axes : la \textbf{vectorisation} par
+passage d'une structure AoS (Array of Structures) vers une SoA (Structure of Arrays),
+la \textbf{parallélisation en mémoire partagée} via OpenMP, et la
+\textbf{parallélisation distribuée} via MPI. Les résultats montrent qu'OpenMP apporte
+une accélération de $7.1\times$ à 14 threads avec une efficacité de $51\%$,
+limitée par la loi d'Amdahl (fraction séquentielle résiduelle $\approx 7\%$) et la
+saturation de la bande passante mémoire. La parallélisation MPI (Approche 1 : carte
+globale, fourmis réparties) s'avère limitée par un goulot de communication de $4.2$~Mo
+par itération, rendant l'accélération négligeable dès 2 processus. Une Approche 2
+(décomposition de domaine) est proposée comme perspective.
+
+\medskip
+\noindent \textbf{Mots-clés :} Optimisation par Colonies de Fourmis, parallélisation,
+OpenMP, MPI, SoA, terrain fractal, HPC.
+
+\newpage
+
+\chapter*{Abstract}
+\addcontentsline{toc}{section}{Abstract}
+
+This report presents the study and parallelisation of an Ant Colony Optimization
+(\textbf{ACO}) algorithm applied to the foraging problem on a fractal plasma landscape.
+Starting from a sequential reference implementation, we progressively optimised the code
+along three axes: \textbf{vectorisation} through an AoS-to-SoA (Array of Structures to
+Structure of Arrays) refactoring, \textbf{shared-memory parallelisation} with OpenMP,
+and \textbf{distributed-memory parallelisation} with MPI. Results show that OpenMP
+delivers a $7.1\times$ speedup at 14 threads with $51\%$ efficiency, bounded by
+Amdahl's law (residual serial fraction $\approx 7\%$) and memory bandwidth saturation.
+MPI parallelisation (Approach 1: global map, distributed ants) is bottlenecked by
+$4.2$~MB of communication per iteration, making the speedup negligible at 2 processes.
+A domain-decomposition Approach 2 is proposed as a future direction.
+
+\medskip
+\noindent \textbf{Keywords:} Ant Colony Optimisation, parallelisation, OpenMP, MPI,
+Structure of Arrays, fractal terrain, HPC.
+
+\newpage
