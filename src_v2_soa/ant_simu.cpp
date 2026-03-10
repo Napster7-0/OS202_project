@@ -2,6 +2,9 @@
 #include <iostream>
 #include <random>
 #include <chrono>
+#include <fstream>
+#include <string>
+#include <iomanip>
 #include "fractal_land.hpp"
 #include "ant.hpp"
 #include "pheronome.hpp"
@@ -9,31 +12,15 @@
 # include "window.hpp"
 # include "rand_generator.hpp"
 
-// ============================================================
-//  Structures pour les mesures de temps
-// ============================================================
-struct TimingStats {
-    double t_ants        = 0.; // Temps passé dans la boucle advance des fourmis
-    double t_evaporation = 0.; // Temps passé dans do_evaporation
-    double t_update      = 0.; // Temps passé dans phen.update (swap + cl_update)
-    double t_render      = 0.; // Temps passé dans le rendu SDL
-    std::size_t count    = 0;  // Nombre d'itérations mesurées
+struct IterationTiming {
+    double t_ants        = 0.;
+    double t_evaporation = 0.;
+    double t_update      = 0.;
+    double t_render      = 0.;
 
-    void print() const {
-        double total = t_ants + t_evaporation + t_update + t_render;
-        std::cout << "\n=== Mesures de temps sur " << count << " itérations ===\n"
-                  << "  Fourmis (advance) : " << t_ants        / count * 1e3 << " ms/it  ("
-                  << 100.*t_ants/total        << " %)\n"
-                  << "  Évaporation       : " << t_evaporation / count * 1e3 << " ms/it  ("
-                  << 100.*t_evaporation/total << " %)\n"
-                  << "  Update phéromones : " << t_update      / count * 1e3 << " ms/it  ("
-                  << 100.*t_update/total      << " %)\n"
-                  << "  Rendu SDL         : " << t_render      / count * 1e3 << " ms/it  ("
-                  << 100.*t_render/total      << " %)\n"
-                  << "  TOTAL             : " << total         / count * 1e3 << " ms/it\n"
-                  << std::flush;
+    double total() const {
+        return t_ants + t_evaporation + t_update + t_render;
     }
-    void reset() { t_ants = t_evaporation = t_update = t_render = 0.; count = 0; }
 };
 
 using Clock = std::chrono::steady_clock;
@@ -43,7 +30,7 @@ using Sec   = std::chrono::duration<double>;
 void advance_time( const fractal_land& land, pheronome& phen,
                    const position_t& pos_nest, const position_t& pos_food,
                    ant_colony& ants, std::size_t& cpteur,
-                   TimingStats& stats )
+                   IterationTiming& timing )
 {
     auto t0 = Clock::now();
     ants.advance_all( phen, land, pos_food, pos_nest, cpteur );
@@ -53,10 +40,9 @@ void advance_time( const fractal_land& land, pheronome& phen,
     phen.update();
     auto t3 = Clock::now();
 
-    stats.t_ants        += Sec(t1 - t0).count();
-    stats.t_evaporation += Sec(t2 - t1).count();
-    stats.t_update      += Sec(t3 - t2).count();
-    stats.count         += 1;
+    timing.t_ants        = Sec(t1 - t0).count();
+    timing.t_evaporation = Sec(t2 - t1).count();
+    timing.t_update      = Sec(t3 - t2).count();
 }
 
 int main(int nargs, char* argv[])
@@ -113,31 +99,60 @@ int main(int nargs, char* argv[])
     bool cont_loop = true;
     bool not_food_in_nest = true;
     std::size_t it = 0;
-    TimingStats stats;
-    const std::size_t PRINT_EVERY = 100; // Affiche les stats toutes les N itérations
+
+    std::string profiling_path = "profiling.csv";
+    for ( int i = 1; i < nargs; ++i ) {
+        std::string arg = argv[i];
+        if ( arg == "--profile" && (i + 1) < nargs ) {
+            profiling_path = argv[++i];
+        }
+    }
+
+    std::ofstream profiling_file(profiling_path, std::ios::out | std::ios::trunc);
+    if ( !profiling_file ) {
+        std::cerr << "Erreur: impossible d'ouvrir le fichier de profiling '"
+                  << profiling_path << "'.\n";
+        SDL_Quit();
+        return 1;
+    }
+    profiling_file << std::setprecision(9);
+    profiling_file << "iteration,food_quantity,first_food_arrived,t_ants_s,t_evaporation_s,t_update_s,t_render_s,t_total_s\n";
+
     while (cont_loop) {
         ++it;
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT)
                 cont_loop = false;
         }
-        advance_time( land, phen, pos_nest, pos_food, ants, food_quantity, stats );  // SoA
+        IterationTiming timing;
+        advance_time( land, phen, pos_nest, pos_food, ants, food_quantity, timing );  // SoA
 
         auto t_render_start = Clock::now();
         renderer.display( win, food_quantity );
         win.blit();
-        stats.t_render += Sec(Clock::now() - t_render_start).count();
+        timing.t_render = Sec(Clock::now() - t_render_start).count();
 
+        bool first_food_arrived = false;
         if ( not_food_in_nest && food_quantity > 0 ) {
-            std::cout << "La première nourriture est arrivée au nid à l'itération " << it << std::endl;
+            first_food_arrived = true;
             not_food_in_nest = false;
         }
-        if ( it % PRINT_EVERY == 0 ) {
-            stats.print();
-            stats.reset();
+
+        profiling_file << it << ","
+                       << food_quantity << ","
+                       << static_cast<int>(first_food_arrived) << ","
+                       << timing.t_ants << ","
+                       << timing.t_evaporation << ","
+                       << timing.t_update << ","
+                       << timing.t_render << ","
+                       << timing.total() << "\n";
+
+        if ( (it % 100) == 0 ) {
+            profiling_file.flush();
         }
         //SDL_Delay(10);
     }
+    profiling_file.flush();
     SDL_Quit();
     return 0;
 }

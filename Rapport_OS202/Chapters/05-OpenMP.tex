@@ -63,6 +63,8 @@ parfaitement régulière (même travail par cellule).
 
 Les mesures suivantes ont été obtenues en faisant varier le nombre de threads OpenMP
 via la variable d'environnement \texttt{OMP\_NUM\_THREADS}, sur la version \texttt{src\_v3\_omp/}.
+Chaque point est la médiane de 3 runs de 15000 itérations, en mode \texttt{--no-render}
+pour isoler le coût calculatoire.
 
 \begin{table}[h]
 \centering
@@ -72,12 +74,12 @@ via la variable d'environnement \texttt{OMP\_NUM\_THREADS}, sur la version \text
 \hline
 \textbf{Threads} & \textbf{Fourmis} & \textbf{Évaporation} & \textbf{Update} & \textbf{Total} \\
 \hline
-1  & 1.88 & 0.19 & 0.003 & 2.09 \\
-2  & 1.01 & 0.10 & 0.003 & 1.13 \\
-4  & 0.54 & 0.10 & 0.003 & 0.66 \\
-8  & 0.32 & 0.10 & 0.003 & 0.44 \\
-12 & 0.22 & 0.10 & 0.003 & 0.33 \\
-14 & 0.19 & 0.10 & 0.003 & 0.29 \\
+1  & 1.821 & 0.203 & 0.003 & 2.027 \\
+2  & 1.029 & 0.103 & 0.003 & 1.137 \\
+4  & 0.587 & 0.061 & 0.004 & 0.651 \\
+8  & 0.354 & 0.052 & 0.006 & 0.411 \\
+12 & 0.259 & 0.051 & 0.006 & 0.315 \\
+14 & 0.232 & 0.051 & 0.006 & 0.289 \\
 \hline
 \end{tabular}
 \end{table}
@@ -92,12 +94,12 @@ via la variable d'environnement \texttt{OMP\_NUM\_THREADS}, sur la version \text
 \hline
 \textbf{Threads $p$} & \textbf{$T_p$ (ms/it)} & \textbf{$S(p)$} & \textbf{$E(p)$ (\%)} \\
 \hline
-1  & 2.09 & 1.0 & 100 \\
-2  & 1.13 & 1.8 &  92 \\
-4  & 0.66 & 3.2 &  79 \\
-8  & 0.44 & 4.8 &  59 \\
-12 & 0.33 & 6.3 &  53 \\
-14 & 0.29 & 7.1 &  51 \\
+1  & 2.027 & 1.00 & 100.0 \\
+2  & 1.137 & 1.78 &  89.2 \\
+4  & 0.651 & 3.12 &  77.9 \\
+8  & 0.411 & 4.93 &  61.6 \\
+12 & 0.315 & 6.44 &  53.6 \\
+14 & 0.289 & 7.00 &  50.0 \\
 \hline
 \end{tabular}
 \end{table}
@@ -121,13 +123,13 @@ La loi d'Amdahl prédit l'accélération maximale pour une fraction parallèle $
     \label{eq:amdahl}
 \end{equation}
 
-À 14 threads, $S(14) = 7.1$. En isolant la partie séquentielle $s = 1 - f$, on obtient :
+À 14 threads, $S(14) = 7.00$. En isolant la partie séquentielle $s = 1 - f$, on obtient :
 
 \[
-    s \approx \frac{1}{S(14)} - \frac{1}{14} \approx 0.070
+    s \approx \frac{1}{S(14)} - \frac{1}{14} \approx 0.071
 \]
 
-La fraction séquentielle résiduelle est d'environ $7\%$ du temps d'exécution.
+La fraction séquentielle résiduelle est d'environ $7.1\%$ du temps d'exécution.
 Elle est principalement constituée de :
 
 \begin{itemize}
@@ -138,8 +140,8 @@ Elle est principalement constituée de :
 
 \subsection{Saturation à partir de 12 threads}
 
-On observe que le gain entre 12 et 14 threads est faible ($6.3 \to 7.1$, soit $+12\%$
-pour $+17\%$ de threads). Ceci s'explique par la nature hybride de la puce :
+On observe que le gain entre 12 et 14 threads reste modéré ($6.44 \to 7.00$, soit
+$\approx +8.8\%$ pour $+17\%$ de threads). Ceci s'explique par la nature hybride de la puce :
 les 12 premiers threads occupent les 6 P-cores (2 threads/cœur via HT), tandis que
 les 14\textsuperscript{e} et 16\textsuperscript{e} threads mobilisent des E-cores
 de cadence inférieure. Par ailleurs, la pression sur le cache L3 partagé (24 Mo)
@@ -148,9 +150,11 @@ commence à croître significativement lorsque plusieurs threads accèdent simul
 
 \subsection{Évaporation en plateau}
 
-Le temps d'évaporation se stabilise autour de $0.10$~ms/it dès 2 threads et ne
-diminue plus au-delà. Ce plafonnement indique que la phase d'évaporation est
+Le temps d'évaporation se stabilise autour de $0.050$--$0.051$~ms/it à partir de
+8 threads et ne diminue plus significativement au-delà. Ce plafonnement indique
+que la phase d'évaporation est
 \textbf{limitée par la bande passante mémoire} (memory-bound) : à 2 threads, le
-débit maximal vers la RAM est déjà atteint pour ce volume de données ($\approx 4$~Mo
-de buffer pheromone parcouru séquentiellement). Le gain d'un troisième thread ne peut
-pas dépasser ce plafond matériel.
+débit mémoire augmente encore, mais le gain marginal devient rapidement faible pour
+ce volume de données ($\approx 4$~Mo de buffer pheromone parcouru séquentiellement).
+L'augmentation du nombre de threads au-delà de 8 n'apporte donc qu'un bénéfice limité
+sur cette phase spécifique.

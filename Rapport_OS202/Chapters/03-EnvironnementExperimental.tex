@@ -135,4 +135,24 @@ ne sont pas biaisées par des variations de la dynamique de simulation, on véri
           des performances reste représentatif.
 \end{enumerate}
 
+    Il est important de distinguer deux niveaux de reproductibilité :
+    \begin{itemize}
+        \item \textbf{Reproductibilité fonctionnelle} : avec les mêmes paramètres
+            ($N$, $m$, $\varepsilon$, $\alpha$, $\beta$), la même graine et le même
+            nombre d'itérations, on obtient des indicateurs métier comparables
+            (première nourriture, quantité finale) ;
+        \item \textbf{Reproductibilité performance} : les temps absolus (ms/it) ne
+            sont pas transférables d'une machine à l'autre (fréquence CPU, hiérarchie
+            mémoire, charge système, pilote graphique, politique d'ordonnancement).
+    \end{itemize}
+
+    En conséquence, sur une machine moins performante, on attend des temps absolus plus
+    élevés ; sur une machine plus performante, des temps plus faibles. En revanche,
+    les conclusions sont jugées robustes si les \textbf{parts relatives par phase}
+    et les \textbf{tendances de speedup} restent cohérentes.
+
+    Pour les comparaisons inter-machines, les résultats sont donc rapportés sous forme
+    de métriques normalisées ($S(p)$, $E(p)$), complétées par médiane/min/max sur
+    plusieurs exécutions.
+
 % TODO : ajouter tableau de reproductibilité (compteur nourriture sur 3 runs × versions)

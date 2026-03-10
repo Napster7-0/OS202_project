@@ -2,6 +2,10 @@
 #include <iostream>
 #include <random>
 #include <chrono>
+#include <fstream>
+#include <string>
+#include <iomanip>
+#include <memory>
 #include <omp.h>
 #include "fractal_land.hpp"
 #include "ant.hpp"
@@ -10,32 +14,15 @@
 # include "window.hpp"
 # include "rand_generator.hpp"
 
-// ============================================================
-//  Structures pour les mesures de temps
-// ============================================================
-struct TimingStats {
-    double t_ants        = 0.; // Temps passé dans la boucle advance des fourmis
-    double t_evaporation = 0.; // Temps passé dans do_evaporation
-    double t_update      = 0.; // Temps passé dans phen.update (swap + cl_update)
-    double t_render      = 0.; // Temps passé dans le rendu SDL
-    std::size_t count    = 0;  // Nombre d'itérations mesurées
+struct IterationTiming {
+    double t_ants        = 0.;
+    double t_evaporation = 0.;
+    double t_update      = 0.;
+    double t_render      = 0.;
 
-    void print( int nb_threads = 1 ) const {
-        double total = t_ants + t_evaporation + t_update + t_render;
-        std::cout << "\n=== Mesures de temps sur " << count << " itérations"
-                  << " [threads=" << nb_threads << "] ===\n"
-                  << "  Fourmis (advance) : " << t_ants        / count * 1e3 << " ms/it  ("
-                  << 100.*t_ants/total        << " %)\n"
-                  << "  Évaporation       : " << t_evaporation / count * 1e3 << " ms/it  ("
-                  << 100.*t_evaporation/total << " %)\n"
-                  << "  Update phéromones : " << t_update      / count * 1e3 << " ms/it  ("
-                  << 100.*t_update/total      << " %)\n"
-                  << "  Rendu SDL         : " << t_render      / count * 1e3 << " ms/it  ("
-                  << 100.*t_render/total      << " %)\n"
-                  << "  TOTAL             : " << total         / count * 1e3 << " ms/it\n"
-                  << std::flush;
+    double total() const {
+        return t_ants + t_evaporation + t_update + t_render;
     }
-    void reset() { t_ants = t_evaporation = t_update = t_render = 0.; count = 0; }
 };
 
 using Clock = std::chrono::steady_clock;
@@ -45,7 +32,7 @@ using Sec   = std::chrono::duration<double>;
 void advance_time( const fractal_land& land, pheronome& phen,
                    const position_t& pos_nest, const position_t& pos_food,
                    ant_colony& ants, std::size_t& cpteur,
-                   TimingStats& stats )
+                   IterationTiming& timing )
 {
     auto t0 = Clock::now();
     ants.advance_all( phen, land, pos_food, pos_nest, cpteur );
@@ -55,15 +42,35 @@ void advance_time( const fractal_land& land, pheronome& phen,
     phen.update();
     auto t3 = Clock::now();
 
-    stats.t_ants        += Sec(t1 - t0).count();
-    stats.t_evaporation += Sec(t2 - t1).count();
-    stats.t_update      += Sec(t3 - t2).count();
-    stats.count         += 1;
+    timing.t_ants        = Sec(t1 - t0).count();
+    timing.t_evaporation = Sec(t2 - t1).count();
+    timing.t_update      = Sec(t3 - t2).count();
 }
 
 int main(int nargs, char* argv[])
 {
-    SDL_Init( SDL_INIT_VIDEO );
+    std::string profiling_path = "profiling.csv";
+    std::size_t max_iters = 0;
+    bool render_enabled = true;
+    for ( int i = 1; i < nargs; ++i ) {
+        std::string arg = argv[i];
+        if ( arg == "--profile" && (i + 1) < nargs ) {
+            profiling_path = argv[++i];
+        } else if ( arg == "--max-iters" && (i + 1) < nargs ) {
+            max_iters = static_cast<std::size_t>(std::stoull(argv[++i]));
+        } else if ( arg == "--no-render" ) {
+            render_enabled = false;
+        }
+    }
+
+    if ( !render_enabled && max_iters == 0 ) {
+        std::cerr << "Erreur: --no-render requiert --max-iters <N> pour arrêter automatiquement.\n";
+        return 1;
+    }
+
+    if ( render_enabled ) {
+        SDL_Init( SDL_INIT_VIDEO );
+    }
     std::size_t seed = 2026; // Graine pour la génération aléatoire ( reproductible )
     const int nb_ants = 5000; // Nombre de fourmis
     const double eps = 0.8;  // Coefficient d'exploration
@@ -107,42 +114,78 @@ int main(int nargs, char* argv[])
     ant_colony ants( init_positions, init_seeds );
     pheronome phen(land.dimensions(), pos_food, pos_nest, alpha, beta);
 
-    // Affiche le nombre de threads OpenMP utilisés
     std::cout << "OpenMP : " << omp_get_max_threads() << " thread(s) disponibles.\n"
-              << "Utilisez OMP_NUM_THREADS=N pour changer. Ex : OMP_NUM_THREADS=4 ./ant_simu.exe\n";
-    Window win("Ant Simulation [SoA + OpenMP]", 2*land.dimensions()+10, land.dimensions()+266);
-    Renderer renderer( land, phen, pos_nest, pos_food, ants );
+              << "Utilisez OMP_NUM_THREADS=N pour changer. Ex : OMP_NUM_THREADS=4 ./ant_simu.exe --no-render --max-iters 2000\n";
+
+    std::unique_ptr<Window> win;
+    std::unique_ptr<Renderer> renderer;
+    if ( render_enabled ) {
+        win = std::make_unique<Window>("Ant Simulation [SoA + OpenMP]", 2*land.dimensions()+10, land.dimensions()+266);
+        renderer = std::make_unique<Renderer>( land, phen, pos_nest, pos_food, ants );
+    }
+
+    std::ofstream profiling_file(profiling_path, std::ios::out | std::ios::trunc);
+    if ( !profiling_file ) {
+        std::cerr << "Erreur: impossible d'ouvrir le fichier de profiling '"
+                  << profiling_path << "'.\n";
+        if ( render_enabled ) SDL_Quit();
+        return 1;
+    }
+    profiling_file << std::setprecision(9);
+    profiling_file << "iteration,food_quantity,first_food_arrived,t_ants_s,t_evaporation_s,t_update_s,t_render_s,t_total_s\n";
+
     // Compteur de la quantité de nourriture apportée au nid par les fourmis
     size_t food_quantity = 0;
     SDL_Event event;
     bool cont_loop = true;
     bool not_food_in_nest = true;
     std::size_t it = 0;
-    TimingStats stats;
-    const std::size_t PRINT_EVERY = 100; // Affiche les stats toutes les N itérations
+
     while (cont_loop) {
         ++it;
-        while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_QUIT)
-                cont_loop = false;
+        if ( render_enabled ) {
+            while (SDL_PollEvent(&event)) {
+                if (event.type == SDL_QUIT)
+                    cont_loop = false;
+            }
         }
-        advance_time( land, phen, pos_nest, pos_food, ants, food_quantity, stats );  // SoA
+        IterationTiming timing;
+        advance_time( land, phen, pos_nest, pos_food, ants, food_quantity, timing );
 
-        auto t_render_start = Clock::now();
-        renderer.display( win, food_quantity );
-        win.blit();
-        stats.t_render += Sec(Clock::now() - t_render_start).count();
+        if ( render_enabled ) {
+            auto t_render_start = Clock::now();
+            renderer->display( *win, food_quantity );
+            win->blit();
+            timing.t_render = Sec(Clock::now() - t_render_start).count();
+        }
 
+        bool first_food_arrived = false;
         if ( not_food_in_nest && food_quantity > 0 ) {
-            std::cout << "La première nourriture est arrivée au nid à l'itération " << it << std::endl;
+            first_food_arrived = true;
             not_food_in_nest = false;
         }
-        if ( it % PRINT_EVERY == 0 ) {
-            stats.print( omp_get_max_threads() );
-            stats.reset();
+
+        profiling_file << it << ","
+                       << food_quantity << ","
+                       << static_cast<int>(first_food_arrived) << ","
+                       << timing.t_ants << ","
+                       << timing.t_evaporation << ","
+                       << timing.t_update << ","
+                       << timing.t_render << ","
+                       << timing.total() << "\n";
+
+        if ( (it % 100) == 0 ) {
+            profiling_file.flush();
+        }
+
+        if ( max_iters > 0 && it >= max_iters ) {
+            cont_loop = false;
         }
         //SDL_Delay(10);
     }
-    SDL_Quit();
+    profiling_file.flush();
+    if ( render_enabled ) {
+        SDL_Quit();
+    }
     return 0;
 }
