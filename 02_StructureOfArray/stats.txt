@@ -1,0 +1,23 @@
+Profiling lu depuis: profiling.csv
+Iterations: 14999
+Premiere nourriture au nid: iteration 2585
+Nourriture finale: 30324
+
+ants               mean=3.9887     ms min=1.8321     ms max=8.9144     ms share=8.42   %
+evaporation        mean=0.6109     ms min=0.2644     ms max=1.8508     ms share=1.29   %
+update             mean=0.0115     ms min=0.0028     ms max=0.0394     ms share=0.02   %
+render             mean=42.7452    ms min=1.9377     ms max=2014.2910  ms share=90.26  %
+total              mean=47.3562    ms min=4.4607     ms max=2021.7478  ms share=100.00 %
+
+
+naps@naps-Dell-G15-5530:~/Documents/Ensta/SD/Cours_Ensta_2026_SD/projet/02_StructureOfArray$ ./profile_stats.exe 
+Profiling lu depuis: profiling.csv
+Iterations: 14999
+Premiere nourriture au nid: iteration 1604
+Nourriture finale: 141245
+
+ants               mean=6.8784     ms min=3.6581     ms max=15.9118    ms share=5.24   %
+evaporation        mean=0.4994     ms min=0.2271     ms max=1.2067     ms share=0.38   %
+update             mean=0.0086     ms min=0.0028     ms max=0.0328     ms share=0.01   %
+render             mean=123.7647   ms min=2.0283     ms max=2043.6808  ms share=94.37  %
+total              mean=131.1510   ms min=8.1222     ms max=2051.1610  ms share=100.00 %

@@ -1,0 +1,22 @@
+Profiling lu depuis: profiling.csv
+Iterations: 14999
+Premiere nourriture au nid: iteration 1747
+Nourriture finale: 54123
+
+ants               mean=4.4343     ms min=1.8937     ms max=8.5008     ms share=5.62   %
+evaporation        mean=0.6375     ms min=0.2303     ms max=1.7417     ms share=0.81   %
+update             mean=0.0119     ms min=0.0026     ms max=0.1141     ms share=0.02   %
+render             mean=73.8174    ms min=1.8251     ms max=2029.3356  ms share=93.56  %
+total              mean=78.9011    ms min=4.3732     ms max=2032.1851  ms share=100.00 %
+
+Profiling lu depuis: profiling.csv
+Iterations: 14999
+Premiere nourriture au nid: iteration 1517
+Nourriture finale: 137090
+
+ants               mean=6.4514     ms min=2.9204     ms max=14.5391    ms share=16.99  %
+evaporation        mean=0.4664     ms min=0.2421     ms max=1.4409     ms share=1.23   %
+update             mean=0.0074     ms min=0.0026     ms max=0.0287     ms share=0.02   %
+render             mean=31.0553    ms min=2.2190     ms max=2026.6808  ms share=81.77  %
+total              mean=37.9805    ms min=7.0161     ms max=2035.5556  ms share=100.00 %
+
