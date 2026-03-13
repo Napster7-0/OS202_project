@@ -54,7 +54,7 @@ def main():
     parser.add_argument("--threads", default="1,2,4,8,12,14", help="Comma-separated thread counts")
     parser.add_argument("--repeats", type=int, default=3, help="Runs per thread count")
     parser.add_argument("--iters", type=int, default=15000, help="Iterations per run")
-    parser.add_argument("--binary", default="./ant_simu.exe", help="Path to simulation binary")
+    parser.add_argument("--binary", default="./ant_simu", help="Path to simulation binary")
     parser.add_argument("--out", default="summary_openmp.csv", help="Summary CSV output path")
     parser.add_argument("--results-dir", default="results_openmp", help="Directory for per-run CSV files")
     parser.add_argument("--no-render", action="store_true", default=True, help="Run with --no-render (default true)")

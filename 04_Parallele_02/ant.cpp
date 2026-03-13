@@ -1,15 +1,16 @@
 // ant.cpp  —  Version 3 : Vectorisation SoA + OpenMP
 #include "ant.hpp"
-#include "rand_generator.hpp"
+#include "../00_src/rand_generator.hpp"
 #include <omp.h>
+
 
 double ant_colony::m_eps = 0.;
 
-// =============================================================
+
 //  Avance UNE fourmi (indice idx dans les tableaux SoA)
 //  Logique identique à ant::advance() v1, mais les données
 //  sont lues/écrites via m_states[idx], m_positions[idx], m_seeds[idx]
-// =============================================================
+
 void ant_colony::advance_one( std::size_t idx,
                               pheronome& phen, const fractal_land& land,
                               const position_t& pos_food, const position_t& pos_nest,
@@ -64,7 +65,6 @@ void ant_colony::advance_one( std::size_t idx,
     }
 }
 
-// =============================================================
 //  Boucle sur toutes les fourmis — parallélisée avec OpenMP
 //
 //  Choix de conception :
@@ -82,7 +82,7 @@ void ant_colony::advance_one( std::size_t idx,
 //       (cf. énoncé : "on choisira la valeur la plus grande").
 //       Pour être strict, on pourrait ajouter #pragma omp critical,
 //       mais au prix d'une forte sérialisation.
-// =============================================================
+
 void ant_colony::advance_all( pheronome& phen, const fractal_land& land,
                               const position_t& pos_food, const position_t& pos_nest,
                               std::size_t& cpteur_food )

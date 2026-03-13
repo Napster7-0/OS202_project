@@ -6,7 +6,9 @@
 #include <iostream>
 #include <utility>
 #include <vector>
+#ifndef USE_MPI
 #include <omp.h>
+#endif
 #ifdef USE_MPI
 #include <mpi.h>
 #endif

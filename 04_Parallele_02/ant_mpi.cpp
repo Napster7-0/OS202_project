@@ -1,7 +1,9 @@
 // ant.cpp  —  Version 3 : Vectorisation SoA + OpenMP
 #include "ant.hpp"
 #include "../00_src/rand_generator.hpp"
+#ifdef _OPENMP
 #include <omp.h>
+#endif
 
 double ant_colony::m_eps = 0.;
 

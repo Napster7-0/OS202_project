@@ -4,8 +4,7 @@
 
 double ant_colony::m_eps = 0.;
 
-//  Avance UNE fourmi (indice idx dans les tableaux SoA)
-//  Logique identique à ant::advance() v1, mais les données
+//  Avance UNE fourmi (indice idx dans les tableaux SoA). Logique identique à ant::advance() v1, mais les données
 //  sont lues/écrites via m_states[idx], m_positions[idx], m_seeds[idx]
 
 void ant_colony::advance_one( std::size_t idx,

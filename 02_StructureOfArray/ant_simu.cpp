@@ -49,7 +49,7 @@ int main(int nargs, char* argv[])
 {
     SDL_Init( SDL_INIT_VIDEO );
     std::size_t seed = 2026; // Graine pour la génération aléatoire ( reproductible )
-    const int nb_ants = 5000; // Nombre de fourmis
+    const int nb_ants = 10000; // Nombre de fourmis
     const double eps = 0.8;  // Coefficient d'exploration
     const double alpha=0.7; // Coefficient de chaos
     //const double beta=0.9999; // Coefficient d'évaporation

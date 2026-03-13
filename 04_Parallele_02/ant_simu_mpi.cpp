@@ -1,6 +1,6 @@
 // ant_simu_mpi.cpp  —  Version 4 : Parallélisation MPI (Approche 1)
 //
-// STRATÉGIE (Approche 1 du cours) :
+// STRATÉGIE:
 //   • Chaque processus MPI possède la carte entière (phéromones + terrain)
 //   • Les m fourmis sont réparties équitablement entre les P processus
 //     → chaque processus gère m/P fourmis (+ reste sur le dernier)
@@ -14,12 +14,14 @@
 //        les processus") → chaque processus obtient la carte fusionnée
 //     4. phen.update() (swap buffer → carte principale)
 //
-// NOTE : pas de SDL dans cette version (calcul pur), résultats sur stdout
+// NOTE : pas de SDL dans cette version, calcul pur, résultats sur stdout
 // Compiler : make ant_simu_mpi.exe
 // Lancer   : mpirun -np 4 ./ant_simu_mpi.exe
 
 #include <mpi.h>
+#ifdef _OPENMP
 #include <omp.h>
+#endif
 #include <vector>
 #include <iostream>
 #include <chrono>
@@ -39,7 +41,7 @@ int main(int argc, char* argv[])
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nb_proc);
 
-    // ── Paramètres de simulation ─────────────────────────────────────────
+    // Paramètres de simulation 
     const std::size_t nb_ants   = 5000;
     const double      eps       = 0.8;
     const double      alpha     = 0.7;
@@ -49,7 +51,7 @@ int main(int argc, char* argv[])
     position_t pos_nest{256, 256};
     position_t pos_food{500, 500};
 
-    // ── Génération du terrain (identique sur tous les processus) ─────────
+    // Génération du terrain (identique sur tous les processus)
     fractal_land land(8, 2, 1., 1024);
     double max_val = 0., min_val = 1e18;
     for (fractal_land::dim_t i = 0; i < land.dimensions(); ++i)
@@ -62,7 +64,7 @@ int main(int argc, char* argv[])
         for (fractal_land::dim_t j = 0; j < land.dimensions(); ++j)
             land(i,j) = (land(i,j) - min_val) / delta;
 
-    // ── Répartition des fourmis entre processus ──────────────────────────
+    // Répartition des fourmis entre processus 
     // Processus rank gère les fourmis [first_ant, last_ant)
     std::size_t base    = nb_ants / nb_proc;
     std::size_t rest    = nb_ants % nb_proc;
@@ -94,7 +96,7 @@ int main(int argc, char* argv[])
     ant_colony::set_exploration_coef(eps);
     ant_colony local_ants( local_pos, local_seeds );
 
-    // ── Phéromones : chaque processus a sa propre copie ──────────────────
+    //Phéromones : chaque processus a sa propre copie
     pheronome phen(land.dimensions(), pos_food, pos_nest, alpha, beta);
 
     // Taille du buffer phéromone (stride*stride paires de doubles)
@@ -109,7 +111,7 @@ int main(int argc, char* argv[])
     std::size_t i_end   = (rank == nb_proc-1) ? dim+1
                           : i_start + rows_per_proc;
 
-    // ── Boucle principale ────────────────────────────────────────────────
+    // Boucle principale
     std::size_t local_food  = 0;
     std::size_t global_food = 0;
     double t_ants = 0., t_evap = 0., t_comm = 0.;

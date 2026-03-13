@@ -60,7 +60,7 @@ public:
 private:
     static double m_eps;
 
-    // --- Les trois tableaux SoA (layout mémoire plat et contigu) ---
+    // Les trois tableaux SoA (layout mémoire plat et contigu) 
     std::vector<state_t>    m_states;     // États : [s0, s1, s2, ...]
     std::vector<position_t> m_positions;  // Positions : [(x0,y0), (x1,y1), ...]
     std::vector<std::size_t> m_seeds;     // Graines : [seed0, seed1, ...]
