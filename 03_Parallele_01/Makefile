@@ -1,0 +1,45 @@
+include ../00_src/Make_linux.inc
+#include ../00_src/Make_msys2.inc
+#include ../00_src/Make_osx.inc
+
+CXXFLAGS = -std=c++17
+ifdef DEBUG
+CXXFLAGS += -g -O0 -Wall -fbounds-check -pedantic -D_GLIBCXX_DEBUG
+CXXFLAGS2 = CXXFLAGS
+else
+CXXFLAGS2 = ${CXXFLAGS} -O2 -march=native -Wall 
+CXXFLAGS += -O3 -march=native -Wall
+endif
+
+ALL= ant_simu.exe profile_stats.exe
+
+default:	help
+
+all: $(ALL)
+
+summary_openmp: $(ALL)
+	python3 summary_openmp.py --threads 1,2,4,8,12,14 --repeats 3 --iters 15000 --out summary_openmp.csv --results-dir results_openmp --no-render
+
+clean:
+	@rm -fr *.o *.exe *~
+
+.cpp.o:
+	$(CXX) $(CXXFLAGS2) -c $^ -o $@	
+
+ant_simu.exe : ant.o ../00_src/fractal_land.o renderer.o ../00_src/window.o ant_simu.o
+	$(CXX) $(CXXFLAGS2) $^ -o $@ $(LIB)	
+
+profile_stats.exe : ../01_Profiling/profile_stats.o
+	$(CXX) $(CXXFLAGS2) $^ -o $@
+
+help:
+	@echo "Available targets : "
+	@echo "    all            : compile all executables"
+	@echo "    summary_openmp : run OMP campaign and write summary_openmp.csv"
+	@echo "Add DEBUG=yes to compile in debug"
+	@echo "Configuration :"
+	@echo "    CXX      :    $(CXX)"
+	@echo "    CXXFLAGS :    $(CXXFLAGS)"
+
+%.html: %.md
+	pandoc -s --toc $< --css=./github-pandoc.css --metadata pagetitle="OS202 - TD1" -o $@

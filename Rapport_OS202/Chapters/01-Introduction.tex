@@ -5,49 +5,58 @@
 \addcontentsline{toc}{chapter}{Introduction}
 \label{chap:intro}
 
-\section{Contexte}
+% ----------------------------------------------------------------
+\section{Contexte et motivation}
+% ----------------------------------------------------------------
 
-Les algorithmes d'optimisation par colonies de fourmis (\textit{Ant Colony Optimisation}, ACO)
-appartiennent à la classe des algorithmes d'intelligence en essaim introduite par Beni et al.\
-en 1989~\cite{beni1989swarm}. Ces méthodes s'inspirent du comportement de fourragement des
-fourmis réelles : des agents simples interagissent indirectement via l'environnement
-(stigmergie), produisant collectivement un comportement intelligent sans coordination centrale.
+Les algorithmes d'\emph{Intelligence en essaim} (\textit{Swarm Intelligence}) ont été
+introduits par Beni et Wang en 1989~\cite{beni1989swarm}. Cette famille de méthodes
+s'inspire du comportement collectif d'insectes sociaux : des agents simples, dotés
+d'une capacité de traitement locale limitée, interagissent \emph{indirectement} via
+l'environnement — un mécanisme connu sous le nom de \textbf{stigmergie} — pour produire
+collectivement un comportement adaptatif complexe, sans aucune coordination centralisée.
 
-% TODO : ajouter 2-3 phrases sur les applications industrielles et académiques des ACO
+L'algorithme d'essaim le plus étudié est l'\textbf{Optimisation par Colonies de Fourmis}
+(\textit{Ant Colony Optimisation}, ACO), formalisé par Dorigo, Maniezzo et Colorni
+en 1996~\cite{dorigo1996ant}. Son inspiration directe est le fourragement des fourmis
+réelles : en se déplaçant, chaque fourmi dépose des \emph{phéromones} sur son trajet ;
+les congénères perçoivent ces phéromones et tendent à emprunter les chemins les plus
+concentrés, ce qui renforce progressivement les routes les plus courtes tout en laissant
+s'évaporer les marques inutilisées. Cette rétroaction positive/négative converge vers
+une solution proche de l'optimum global~\cite{dorigo2004ant}.
 
-\section{Problème étudié}
+Dans ce projet, on met en œuvre un modèle ACO simplifié pour résoudre le
+\textbf{problème de fourragement} sur un terrain fractal 2D : trouver le chemin de
+coût minimal entre le nid et une source de nourriture, en tenant compte d'un terrain
+à relief variable généré par un algorithme de plasma fractal (subdivision récursive
+\textit{midpoint displacement}~\cite{fournier1982midpoint}).
 
-Ce projet met en \oe{}uvre un modèle ACO pour résoudre le \textbf{problème de fourragement} :
-trouver le chemin de coût minimal entre un nid et une source de nourriture sur un terrain
-fractal 2D. Chaque cellule de la grille est associée à un coût de traversée généré par un
-algorithme de plasma fractal (subdivision récursive midpoint displacement).
+\section{Objectifs du rapport}
+% ----------------------------------------------------------------
 
-L'intérêt pédagogique réside dans la progression d'optimisation du code :
+Ce rapport suit la progression imposée par le sujet de TP~\cite{ensta2026os202} :
+
 \begin{enumerate}
-    \item Analyse du code de référence et instrumentation temporelle ;
-    \item Vectorisation via la transformation AoS $\rightarrow$ SoA (\textit{Structure of Arrays}) ;
-    \item Parallélisation à mémoire partagée (OpenMP) ;
-    \item Parallélisation à mémoire distribuée (MPI), deux approches.
+    \item \textbf{Instrumentation} : mesure expérimentale des temps par phase sur le
+          code de référence (\texttt{src\_v1\_timing/}) ;
+    \item \textbf{Vectorisation} : passage AoS $\rightarrow$ SoA et analyse de l'impact
+          sur les performances mono-c\oe{}ur (\texttt{src\_v2\_soa/}) ;
+    \item \textbf{OpenMP} : parallélisation en mémoire partagée, mesure de l'accélération
+          $S(p)$ en fonction du nombre de threads (\texttt{src\_v3\_omp/}) ;
+    \item \textbf{MPI} : deux stratégies de parallélisation distribuée, analyse du
+          rapport calcul/communication (\texttt{src\_v4\_mpi/}).
 \end{enumerate}
 
-\section{Objectifs}
+Les mesures sont réalisées sur deux machines distinctes (chapitre~\ref{chap:env})
+afin d'évaluer la portabilité des conclusions.
 
-% TODO : reformuler selon les attentes précises du cours OS202
-
-Les objectifs de ce rapport sont :
-\begin{itemize}
-    \item Identifier expérimentalement les goulots d'étranglement du code de référence ;
-    \item Évaluer l'impact de la vectorisation sur les performances mono-c\oe{}ur ;
-    \item Mesurer l'accélération $S(p) = T(1)/T(p)$ et l'efficacité $E(p) = S(p)/p$
-          en fonction du nombre de threads/processus ;
-    \item Comparer les stratégies de parallélisation MPI et identifier leurs limites.
-\end{itemize}
-
+% ----------------------------------------------------------------
 \section{Organisation du rapport}
+% ----------------------------------------------------------------
 
-Le rapport est structuré comme suit. Le chapitre~\ref{chap:modele} décrit le modèle ACO et
-l'implémentation de référence. Le chapitre~\ref{chap:env} présente l'environnement expérimental
-et le protocole de mesure. Le chapitre~\ref{chap:baseline} analyse les performances mono-c\oe{}ur
-et l'effet de la vectorisation. Les chapitres~\ref{chap:openmp} et~\ref{chap:mpi} présentent
-respectivement les résultats OpenMP et MPI. Le chapitre~\ref{chap:discussion} discute l'ensemble
-des résultats, et on conclut~\ref{chap:conclusion} .
+Le chapitre~\ref{chap:modele} décrit le modèle ACO et son implémentation.
+Le chapitre~\ref{chap:env} présente les environnements expérimentaux (deux machines)
+et le protocole de mesure. Le chapitre~\ref{chap:baseline} analyse le code de
+référence et l'effet de la vectorisation. Les chapitres~\ref{chap:openmp}
+et~\ref{chap:mpi} présentent respectivement les résultats OpenMP et MPI.
+Le chapitre~\ref{chap:discussion} discute l'ensemble des résultats et conclut.
