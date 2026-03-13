@@ -15,6 +15,12 @@
 #include "../00_src/rand_generator.hpp"
 
 namespace {
+// Cette version implémente l'approche 2 du sujet :
+// - la carte est découpée en bandes horizontales,
+// - chaque processus ne stocke que sa bande + 2 lignes fantômes,
+// - les fourmis migrent vers leur nouveau propriétaire quand elles quittent la bande,
+// - un CSV de profiling est produit à chaque itération.
+
 using Clock = std::chrono::steady_clock;
 using Sec = std::chrono::duration<double>;
 
@@ -28,6 +34,7 @@ struct AntRecord {
     std::uint64_t seed;
 };
 
+// Description géométrique de la sous-carte locale détenue par un rang MPI.
 struct Domain {
     int y_start = 0;
     int y_end = -1;
@@ -38,6 +45,8 @@ struct Domain {
     bool owns_y(int y) const { return y >= y_start && y <= y_end; }
 };
 
+// Stockage local des fourmis sous forme SoA pour garder la même logique
+// de vectorisation que dans les versions précédentes.
 struct LocalAnts {
     std::vector<int> x;
     std::vector<int> y;
@@ -65,6 +74,8 @@ struct LocalAnts {
     }
 };
 
+// Découpage 1D de la grille selon y.
+// Les premières bandes reçoivent éventuellement une ligne de plus si dim % nproc != 0.
 inline Domain compute_domain(int rank, int nproc, int dim) {
     const int base = dim / nproc;
     const int rem = dim % nproc;
@@ -74,6 +85,8 @@ inline Domain compute_domain(int rank, int nproc, int dim) {
     return Domain{y0, y1, rows, dim};
 }
 
+// Retourne le propriétaire MPI de la ligne globale y.
+// Cette fonction est utilisée à la fois pour la distribution initiale et pour les migrations.
 inline int owner_of_y(int y, int nproc, int dim) {
     const int base = dim / nproc;
     const int rem = dim % nproc;
@@ -87,10 +100,13 @@ inline int owner_of_y(int y, int nproc, int dim) {
     return rem + (y - split) / base;
 }
 
+// Accès linéaire dans le tableau local [ligne][colonne][type_de_pheromone].
 inline std::size_t idx3(int ly, int lx, int ch, int stride) {
     return static_cast<std::size_t>((ly * stride + lx) * 2 + ch);
 }
 
+// Convertit une coordonnée y globale vers une ligne locale.
+// 0 et local_h+1 sont réservées aux ghost rows.
 inline int global_y_to_local_row(int gy, const Domain& d) {
     if (gy == d.y_start - 1) return 0;
     if (gy == d.y_end + 1) return d.local_h + 1;
@@ -98,6 +114,8 @@ inline int global_y_to_local_row(int gy, const Domain& d) {
     return (gy - d.y_start) + 1;
 }
 
+// Lecture sécurisée d'une case de phéromone depuis la vue locale.
+// Retourne -1 pour les zones interdites ou hors de la sous-carte connue.
 inline double read_pher(const std::vector<double>& map, const Domain& d, int gx, int gy, int ch) {
     if (gx < 0 || gx >= d.dim || gy < 0 || gy >= d.dim) return -1.0;
     const int ly = global_y_to_local_row(gy, d);
@@ -106,6 +124,7 @@ inline double read_pher(const std::vector<double>& map, const Domain& d, int gx,
     return map[idx3(ly, lx, ch, d.stride())];
 }
 
+// Les bords gauche/droite sont toujours des cellules indésirables.
 inline void set_boundaries_x(std::vector<double>& field, const Domain& d) {
     const int st = d.stride();
     for (int ly = 0; ly <= d.local_h + 1; ++ly) {
@@ -116,6 +135,7 @@ inline void set_boundaries_x(std::vector<double>& field, const Domain& d) {
     }
 }
 
+// Les rangs extrêmes portent aussi la frontière globale haute/basse.
 inline void set_global_y_borders(std::vector<double>& field, const Domain& d) {
     const int st = d.stride();
     if (d.local_h == 0) return;
@@ -133,6 +153,7 @@ inline void set_global_y_borders(std::vector<double>& field, const Domain& d) {
     }
 }
 
+// Seul le rang propriétaire du nid / de la nourriture pose la source locale de phéromone.
 inline void seed_sources(std::vector<double>& field, const Domain& d, const position_t& food, const position_t& nest) {
     const int st = d.stride();
     if (d.owns_y(food.y)) {
@@ -145,6 +166,8 @@ inline void seed_sources(std::vector<double>& field, const Domain& d, const posi
     }
 }
 
+// Échange des deux lignes de bord entre voisins directs.
+// On n'échange que le strict nécessaire : pas d'Allreduce global sur la carte.
 inline void exchange_ghost_rows(std::vector<double>& map, const Domain& d, int rank, int nproc) {
     const int st = d.stride();
     if (d.local_h == 0) return;
@@ -169,6 +192,8 @@ inline void exchange_ghost_rows(std::vector<double>& map, const Domain& d, int r
     set_global_y_borders(map, d);
 }
 
+// Mise à jour locale des deux phéromones pour une cellule appartenant à la bande courante.
+// Les calculs s'appuient sur la carte courante (map) et écrivent dans le buffer de sortie.
 inline void mark_pheromone(std::vector<double>& buffer, const std::vector<double>& map, const Domain& d,
                            int gx, int gy, double alpha, const position_t& food, const position_t& nest) {
     if (!d.owns_y(gy) || gx < 0 || gx >= d.dim) return;
@@ -200,6 +225,9 @@ inline void mark_pheromone(std::vector<double>& buffer, const std::vector<double
     }
 }
 
+// Fait avancer toutes les fourmis locales pendant une itération logique.
+// Les fourmis qui quittent la bande ne sont pas conservées localement :
+// elles sont placées dans outbound[owner] pour migration MPI en fin de phase.
 void advance_local_ants(LocalAnts& ants,
                         std::vector<double>& buffer,
                         const std::vector<double>& map,
@@ -291,6 +319,7 @@ void advance_local_ants(LocalAnts& ants,
     ants = std::move(survivors);
 }
 
+// Évaporation locale sur la sous-carte du rang.
 inline void evaporate(std::vector<double>& buffer, const Domain& d, double beta) {
     const int st = d.stride();
     for (int ly = 1; ly <= d.local_h; ++ly) {
@@ -301,6 +330,10 @@ inline void evaporate(std::vector<double>& buffer, const Domain& d, double beta)
     }
 }
 
+// Migration en deux temps :
+// 1) échange des tailles via Alltoall,
+// 2) échange des buffers compacts via Alltoallv.
+// C'est la variante "bucketisée" demandée par le sujet, avec primitives MPI classiques.
 void migrate_ants_alltoallv(LocalAnts& ants,
                             std::vector<std::vector<AntRecord>>& outbound,
                             MPI_Datatype mpi_ant)
@@ -336,6 +369,7 @@ void migrate_ants_alltoallv(LocalAnts& ants,
     for (const auto& ant : recv_buf) ants.push(ant);
 }
 
+// Décrit le paquet d'une fourmi pour pouvoir l'envoyer directement avec MPI.
 MPI_Datatype create_mpi_ant_type() {
     MPI_Datatype dtype;
     AntRecord dummy{};
@@ -366,6 +400,7 @@ int main(int argc, char* argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nproc);
 
+    // Paramètres par défaut ; modifiables en ligne de commande pour profiler rapidement.
     int nb_ants = 5000;
     int nb_iter = 15000;
     const double eps = 0.8;
@@ -386,6 +421,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // Chaque rang reconstruit le même terrain de façon déterministe.
     fractal_land land(8, 2, 1.0, 1024);
     double max_val = 0.0;
     double min_val = 1e18;
@@ -410,6 +446,7 @@ int main(int argc, char* argv[]) {
     std::vector<AntRecord> scatter_pack;
     std::vector<int> send_counts(nproc, 0), send_displs(nproc, 0);
 
+    // Rank 0 génère toutes les fourmis puis les répartit par buckets spatiaux.
     if (rank == 0) {
         std::size_t seed = 2026;
         std::vector<std::vector<AntRecord>> buckets(nproc);
@@ -429,9 +466,11 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // Première phase : chaque rang apprend combien de fourmis il va recevoir.
     int local_n = 0;
     MPI_Scatter(send_counts.data(), 1, MPI_INT, &local_n, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
+    // Deuxième phase : distribution effective des fourmis locales.
     std::vector<AntRecord> local_init(local_n);
     MPI_Scatterv(scatter_pack.data(), send_counts.data(), send_displs.data(), mpi_ant,
                  local_init.data(), local_n, mpi_ant, 0, MPI_COMM_WORLD);
@@ -440,6 +479,7 @@ int main(int argc, char* argv[]) {
     ants.reserve(static_cast<std::size_t>(local_n) + 128);
     for (const auto& a : local_init) ants.push(a);
 
+    // Carte locale + ghost rows + halo en x.
     const std::size_t field_sz = static_cast<std::size_t>(dom.local_h + 2) * static_cast<std::size_t>(dom.dim + 2) * 2;
     std::vector<double> map(field_sz, 0.0);
     std::vector<double> buffer(field_sz, 0.0);
@@ -461,26 +501,33 @@ int main(int argc, char* argv[]) {
     for (int it = 1; it <= nb_iter; ++it) {
         auto t0 = Clock::now();
 
+        // 1. Synchronisation des bords avant lecture des voisins haut/bas.
         auto tb0 = Clock::now();
         exchange_ghost_rows(map, dom, rank, nproc);
         auto tb1 = Clock::now();
 
+        // Le buffer repart de la carte courante, puis reçoit les mises à jour locales.
         buffer = map;
 
         std::vector<std::vector<AntRecord>> outbound(nproc);
+
+        // 2. Avance locale des fourmis et préparation des migrations.
         auto ta0 = Clock::now();
         advance_local_ants(ants, buffer, map, dom, land, pos_food, pos_nest,
                            eps, alpha, rank, nproc, local_food, outbound);
         auto ta1 = Clock::now();
 
+        // 3. Évaporation uniquement sur la bande du rang.
         auto te0 = Clock::now();
         evaporate(buffer, dom, beta);
         auto te1 = Clock::now();
 
+        // 4. Envoi/réception des fourmis qui ont changé de propriétaire.
         auto tm0 = Clock::now();
         migrate_ants_alltoallv(ants, outbound, mpi_ant);
         auto tm1 = Clock::now();
 
+        // 5. Le buffer devient la nouvelle carte ; on rétablit ensuite les conditions limites.
         auto tu0 = Clock::now();
         map.swap(buffer);
         set_boundaries_x(map, dom);
@@ -490,6 +537,7 @@ int main(int argc, char* argv[]) {
 
         auto t1 = Clock::now();
 
+        // Réductions globales pour les métriques de suivi et le CSV.
         std::size_t total_ants_local = ants.size();
         std::size_t total_ants_global = 0;
         MPI_Allreduce(&total_ants_local, &total_ants_global, 1, MPI_UNSIGNED_LONG, MPI_SUM, MPI_COMM_WORLD);
@@ -506,6 +554,7 @@ int main(int argc, char* argv[]) {
         const double update_ms = Sec(tu1 - tu0).count() * 1e3;
         const double total_ms = Sec(t1 - t0).count() * 1e3;
 
+        // On garde le pire temps parmi les rangs, ce qui correspond au temps réel d'une itération MPI.
         std::array<double, 6> local_times{ants_ms, evap_ms, comm_border_ms, comm_mig_ms, update_ms, total_ms};
         std::array<double, 6> global_times{};
         MPI_Reduce(local_times.data(), global_times.data(), 6, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);

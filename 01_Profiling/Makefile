@@ -1,5 +1,5 @@
 include ../00_src/Make_osx.inc
-#include ../00_src/Make_linux.inc
+include ../00_src/Make_linux.inc
 #include ../00_src/Make_msys2.inc
 
 CXXFLAGS = -std=c++17 -I$(SDL2_PREFIX)/include
